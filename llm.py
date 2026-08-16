@@ -30,6 +30,7 @@ def _step_stream_anthropic(prompt: str):
         model=config.ANTHROPIC_MODEL,
         max_tokens=config.STEP_MAX_TOKENS,
         messages=[{"role": "user", "content": prompt}],
+        output_config={"effort": "low"},
     ) as stream:
         yield from stream.text_stream
 

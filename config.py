@@ -32,5 +32,10 @@ EMBEDDING_DIM = int(os.environ.get(
 ))
 
 TOTAL_STEPS = int(os.environ.get("TOTAL_STEPS", "20"))
-LEASE_TTL_SECONDS = int(os.environ.get("LEASE_TTL_SECONDS", "3"))
-STANDBY_POLL_SECONDS = float(os.environ.get("STANDBY_POLL_SECONDS", "1.0"))
+# Tight failover budget (F2 acceptance: standby produces next token <=5s
+# after a kill). Worst case is TTL + poll before the standby even claims,
+# so both are kept small; the heartbeat renews well inside the TTL so a
+# live-but-thinking primary is never falsely evicted.
+LEASE_TTL_SECONDS = float(os.environ.get("LEASE_TTL_SECONDS", "2"))
+LEASE_HEARTBEAT_SECONDS = float(os.environ.get("LEASE_HEARTBEAT_SECONDS", "0.5"))
+STANDBY_POLL_SECONDS = float(os.environ.get("STANDBY_POLL_SECONDS", "0.25"))

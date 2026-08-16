@@ -13,10 +13,11 @@ CREATE TABLE IF NOT EXISTS job_state (
     job_id UUID PRIMARY KEY REFERENCES jobs(id),
     step INT NOT NULL DEFAULT 0,
     total_steps INT NOT NULL,
-    plan JSONB,
     partial_output TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- The step-1 "plan" step's own output is stored as a memory_events row
+-- (kind='plan'), not duplicated in a separate JSONB column here.
 
 CREATE TABLE IF NOT EXISTS lease (
     job_id UUID PRIMARY KEY REFERENCES jobs(id),
@@ -27,12 +28,12 @@ CREATE TABLE IF NOT EXISTS lease (
 
 CREATE TABLE IF NOT EXISTS output_chunks (
     job_id UUID NOT NULL REFERENCES jobs(id),
-    seq INT NOT NULL,
     step INT NOT NULL,
+    seq INT NOT NULL, -- sequence within the step; resets to 0 each step
     text TEXT NOT NULL,
     region TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (job_id, seq)
+    PRIMARY KEY (job_id, step, seq)
 );
 
 CREATE TABLE IF NOT EXISTS memory_events (

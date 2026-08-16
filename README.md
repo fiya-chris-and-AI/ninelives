@@ -17,7 +17,15 @@ Built for the CockroachDB × AWS Hackathon — "Build with Agentic Memory"
 **M0 (spike) complete.** Verified against the live CockroachDB Cloud cluster:
 `VECTOR` column + vector index, `CHANGEFEED` support, and a full transactional
 write/read loop (LLM step streamed and persisted chunk-by-chunk, embedded,
-read back and asserted). M1 (the kill and the resume) is next.
+read back and asserted).
+
+**M1 (the kill and the resume) in progress.** `worker.py` implements the
+transactional step-loop, lease + standby failover, and ephemeral (amnesia)
+mode. All verified against the live cluster with real `kill -9` on real
+processes, not simulated — see `deployments.md` for what was tested and two
+real concurrency bugs found and fixed along the way. Remaining for M1: a
+full timed 20-step run, and re-measuring failover latency during the actual
+demo rehearsal rather than a single dev-machine sample.
 
 ## Disclosures
 
