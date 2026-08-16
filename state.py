@@ -9,21 +9,43 @@ import uuid
 import db
 
 
-def get_or_create_demo_job(goal: str, total_steps: int) -> str:
-    """Returns the id of "the" shared demo job, creating one if none is
-    running. Safe under concurrent callers (two independently-deployed
-    worker services, no other coordination) via SELECT ... FOR UPDATE on
-    the demo_pointer singleton row under CockroachDB SERIALIZABLE — the
-    same pattern worker.py already uses for the lease table."""
+def get_or_create_demo_job(goal: str, total_steps: int, pause_seconds: float) -> dict:
+    """Returns {"job_id": str, "resting": False} for a job ready to work
+    on, or {"job_id": None, "resting": True, "seconds_left": float}
+    during the idle pause between a finished job and the next one
+    (burn-rate throttle, round 2 — see config.IDLE_PAUSE_*_SECONDS).
+    Safe under concurrent callers (two independently-deployed worker
+    services, no other coordination) via SELECT ... FOR UPDATE on the
+    demo_pointer singleton row under CockroachDB SERIALIZABLE — the same
+    pattern worker.py already uses for the lease table. Whichever caller
+    first observes the job as done starts the pause window (writing
+    resting_until); the other caller sees it already set and agrees,
+    so both regions rest together instead of one silently starting a
+    new job while the other idles."""
     def txn(conn):
         with conn.cursor() as cur:
-            cur.execute("SELECT job_id FROM demo_pointer WHERE id = 1 FOR UPDATE")
+            cur.execute("SELECT job_id, resting_until FROM demo_pointer WHERE id = 1 FOR UPDATE")
             row = cur.fetchone()
             if row and row[0] is not None:
-                cur.execute("SELECT status FROM jobs WHERE id = %s", (row[0],))
+                job_id, resting_until = row
+                cur.execute("SELECT status FROM jobs WHERE id = %s", (job_id,))
                 status_row = cur.fetchone()
                 if status_row and status_row[0] == "running":
-                    return str(row[0])
+                    return {"job_id": str(job_id), "resting": False}
+
+                if resting_until is None:
+                    # First caller to see this job as done: start the pause.
+                    cur.execute(
+                        "UPDATE demo_pointer SET resting_until = now() + (%s || ' seconds')::interval WHERE id = 1",
+                        (pause_seconds,),
+                    )
+                    return {"job_id": None, "resting": True, "seconds_left": pause_seconds}
+
+                cur.execute("SELECT GREATEST(EXTRACT(EPOCH FROM (%s - now())), 0)", (resting_until,))
+                seconds_left = float(cur.fetchone()[0])
+                if seconds_left > 0:
+                    return {"job_id": None, "resting": True, "seconds_left": seconds_left}
+                # Pause window elapsed — fall through and claim the next job.
 
             new_id = str(uuid.uuid4())
             cur.execute(
@@ -36,20 +58,49 @@ def get_or_create_demo_job(goal: str, total_steps: int) -> str:
                 (new_id, total_steps),
             )
             if row is None:
-                cur.execute("INSERT INTO demo_pointer (id, job_id) VALUES (1, %s)", (new_id,))
+                cur.execute("INSERT INTO demo_pointer (id, job_id, resting_until) VALUES (1, %s, NULL)", (new_id,))
             else:
-                cur.execute("UPDATE demo_pointer SET job_id = %s WHERE id = 1", (new_id,))
-            return new_id
+                cur.execute("UPDATE demo_pointer SET job_id = %s, resting_until = NULL WHERE id = 1", (new_id,))
+            return {"job_id": new_id, "resting": False}
 
     return db.run_txn(txn)
 
 
 def get_demo_job_id() -> str | None:
+    """The current demo job's id, but only while it's actually running.
+    During the idle pause between jobs (or before the first job has ever
+    been created) this returns None, so arena.py's existing "no active
+    job" path on /api/status and /api/kill is what a visitor honestly
+    sees — not a stale id pointing at a finished job whose worker is
+    resting, not dead."""
     def txn(conn):
         with conn.cursor() as cur:
-            cur.execute("SELECT job_id FROM demo_pointer WHERE id = 1")
+            cur.execute(
+                "SELECT j.id FROM demo_pointer dp JOIN jobs j ON j.id = dp.job_id "
+                "WHERE dp.id = 1 AND j.status = 'running'"
+            )
             row = cur.fetchone()
-            return str(row[0]) if row and row[0] else None
+            return str(row[0]) if row else None
+
+    return db.run_txn(txn)
+
+
+def get_resting_status() -> dict | None:
+    """None while a job is running (or none has ever been created yet).
+    Otherwise {"resting_until": iso str, "seconds_left": float} — the F10
+    arena UI's "next job starts shortly" resting state (burn-rate
+    throttle, round 2)."""
+    def txn(conn):
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT resting_until, GREATEST(EXTRACT(EPOCH FROM (resting_until - now())), 0) "
+                "FROM demo_pointer WHERE id = 1 AND resting_until IS NOT NULL"
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None
+            resting_until, seconds_left = row
+            return {"resting_until": resting_until.isoformat(), "seconds_left": float(seconds_left)}
 
     return db.run_txn(txn)
 

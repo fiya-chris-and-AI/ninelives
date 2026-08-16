@@ -31,6 +31,8 @@
   .step-counter .label { font-size: 10px; color: #6f9a7a; text-transform: uppercase; letter-spacing: 0.1em; display: block; }
   .active-indicator { font-size: 12px; color: #6f9a7a; }
   .active-indicator b { color: #4ade80; }
+  .active-indicator b.resting { color: #d9a441; }
+  #resting-note { font-size: 11px; color: #d9a441; margin-top: 4px; text-align: right; display: none; }
   #kill-btn {
     background: #7a1414; color: #ffe0e0; border: 1px solid #b02020; padding: 12px 28px;
     font-family: inherit; font-size: 14px; font-weight: 700; letter-spacing: 0.06em;
@@ -101,6 +103,7 @@
     <div>
       <button id="kill-btn" disabled>KILL AGENT</button>
       <div id="kill-status"></div>
+      <div id="resting-note"></div>
     </div>
   </div>
 
@@ -142,10 +145,13 @@ const stepDisplay = document.getElementById("step-display");
 const activeRegionEl = document.getElementById("active-region");
 const killBtn = document.getElementById("kill-btn");
 const killStatus = document.getElementById("kill-status");
-let currentStep = null, totalSteps = null, activeRegion = null, cooldownTimer = null;
+const restingNote = document.getElementById("resting-note");
+let currentStep = null, totalSteps = null, activeRegion = null, cooldownTimer = null, restingTimer = null;
 
 function setActive(region) {
+  hideResting();
   activeRegion = region;
+  activeRegionEl.classList.remove("resting");
   activeRegionEl.textContent = region || "—";
   for (const r of REGIONS) {
     const pane = document.getElementById("pane-" + r);
@@ -161,6 +167,42 @@ function setActive(region) {
   killBtn.disabled = !region;
 }
 
+// Burn-rate throttle (round 2): the idle pause between --auto jobs is a
+// real, honest state — no job is running, /api/kill will correctly
+// return 409 if pressed. Told to the visitor rather than left to look
+// like a dead arena.
+function showResting(secondsLeft) {
+  activeRegion = null;
+  activeRegionEl.classList.add("resting");
+  activeRegionEl.textContent = "resting";
+  stepDisplay.textContent = "—/—";
+  for (const r of REGIONS) {
+    const pane = document.getElementById("pane-" + r);
+    const status = document.getElementById("status-" + r);
+    pane.classList.remove("active", "dead");
+    status.textContent = "idle";
+  }
+  killBtn.disabled = true;
+  killStatus.textContent = "";
+
+  clearInterval(restingTimer);
+  restingNote.style.display = "block";
+  let remaining = Math.ceil(secondsLeft);
+  const render = () => { restingNote.textContent = `next job starts in ~${Math.max(remaining, 0)}s`; };
+  render();
+  restingTimer = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) { clearInterval(restingTimer); }
+    render();
+  }, 1000);
+}
+
+function hideResting() {
+  clearInterval(restingTimer);
+  restingTimer = null;
+  restingNote.style.display = "none";
+}
+
 function markDead(region) {
   const pane = document.getElementById("pane-" + region);
   if (pane) { pane.classList.remove("active"); pane.classList.add("dead"); }
@@ -172,6 +214,13 @@ async function loadStatus() {
   try {
     const res = await fetch("/api/status");
     const s = await res.json();
+    if (s.job_id == null) {
+      // No running job: either the idle pause between jobs (resting !=
+      // null) or the brief pre-first-job window at boot. Either way
+      // there is genuinely nothing to kill right now.
+      if (s.resting) showResting(s.resting.seconds_left);
+      return;
+    }
     if (s.step != null) {
       currentStep = s.step; totalSteps = s.total_steps;
       stepDisplay.textContent = `${currentStep}/${totalSteps}`;
@@ -180,6 +229,7 @@ async function loadStatus() {
   } catch (e) { /* status is best-effort; the SSE stream will catch up */ }
 }
 loadStatus();
+setInterval(loadStatus, 5000); // catches the resting <-> active transition between SSE events
 
 const dot = document.getElementById("monitor-dot");
 const status = document.getElementById("monitor-status");
@@ -233,6 +283,9 @@ killBtn.addEventListener("click", async () => {
     } else if (data.reason === "cooldown") {
       killStatus.textContent = `wait ${data.retry_after}s`;
       startCooldown(data.retry_after);
+    } else if (data.reason === "no active job" || data.reason === "no active worker") {
+      killStatus.textContent = "no job running right now — resting";
+      loadStatus(); // pick up the resting countdown immediately
     } else {
       killStatus.textContent = data.reason;
       killBtn.disabled = !activeRegion;

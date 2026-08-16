@@ -34,8 +34,17 @@ CREATE TABLE IF NOT EXISTS lease (
 -- `lease` itself: SELECT ... FOR UPDATE under CockroachDB SERIALIZABLE.
 CREATE TABLE IF NOT EXISTS demo_pointer (
     id INT PRIMARY KEY DEFAULT 1,
-    job_id UUID REFERENCES jobs(id)
+    job_id UUID REFERENCES jobs(id),
+    resting_until TIMESTAMPTZ -- burn-rate throttle (round 2, 2026-08-16): set
+        -- when a job finishes, NULL while a job is running/being created.
+        -- Non-null + in the future = the shared idle pause between --auto
+        -- jobs (state.py's get_or_create_demo_job); both worker regions
+        -- and the arena read this same row so the pause is honest across
+        -- both /api/status and /api/kill, not per-process local state.
 );
+-- Additive migration for the already-deployed table (CREATE TABLE IF NOT
+-- EXISTS above is a no-op against it): safe to re-run, safe on a fresh table.
+ALTER TABLE demo_pointer ADD COLUMN IF NOT EXISTS resting_until TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS output_chunks (
     job_id UUID NOT NULL REFERENCES jobs(id),

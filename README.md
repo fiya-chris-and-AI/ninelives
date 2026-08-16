@@ -93,6 +93,10 @@ Two thin processes:
 - `state.py` — shared reads (current demo job, active lease) plus the
   `demo_pointer` singleton claim so two independently-deployed worker
   services converge on the same job instead of each creating its own.
+  Also owns the round-2 idle pause between finished jobs (burn-rate
+  throttle: `config.IDLE_PAUSE_MIN/MAX_SECONDS`, 60-90s) — during the
+  pause `/api/status` and `/api/kill` both honestly report no job
+  running, rather than reaching a worker that's resting, not dead.
 - `control.py` (F10) — a tiny per-worker HTTP server; `POST /kill` (shared
   secret) does a real `os.kill(self, SIGKILL)`. On ECS this requires
   `linuxParameters.initProcessEnabled: true` (see `deployments.md`) —
@@ -111,7 +115,8 @@ job_state(job_id PK, step, total_steps, plan, partial_output, updated_at)
 lease(job_id PK, owner, region, expires_at, control_addr)
 output_chunks(job_id, seq, step, text, region, created_at)
 memory_events(id, job_id, ts, region, step, kind, content, embedding VECTOR, source, curated)
-demo_pointer(id PK = 1, job_id)  -- F10/F11: which job the two worker services contend
+demo_pointer(id PK = 1, job_id, resting_until)  -- F10/F11: which job the two worker
+    -- services contend, plus the shared idle-pause window between jobs (round 2)
 ```
 
 ## Deployment (F11)

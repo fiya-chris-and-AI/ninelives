@@ -12,6 +12,7 @@ Usage:
 """
 import argparse
 import os
+import random
 import sys
 import threading
 import time
@@ -264,20 +265,34 @@ def run_persistent(job_id: str, region: str, standby: bool, control_addr: str = 
 
 
 def run_auto(region: str):
-    """F10/F11 continuous demo mode: always a live job for a visitor to
-    kill. Starts the control server once (F10's real self-SIGKILL target),
-    then loops forever — each time the current demo job finishes, claims
-    or creates the next one via state.get_or_create_demo_job, so the
-    arena never sits with nothing running (F10's "auto-reset between
-    visitors")."""
+    """F10/F11 continuous demo mode: a live job for a visitor to kill,
+    most of the time. Starts the control server once (F10's real
+    self-SIGKILL target), then loops forever — each time the current
+    demo job finishes, both regions agree (via state.get_or_create_demo_job's
+    shared demo_pointer row) on an idle pause of IDLE_PAUSE_MIN/MAX_SECONDS
+    before the next job starts (burn-rate throttle, round 2: continuous
+    generation exhausted the Anthropic spend cap once already). During
+    the pause there is genuinely no active job — /api/kill honestly
+    returns 409 "no active job" rather than reaching a resting worker."""
     control.start_control_server(config.CONTROL_PORT)
     host = control.discover_host()
     control_addr = f"http://{host}:{config.CONTROL_PORT}"
     print(f"[{region}] control server on {control_addr}")
 
+    announced_rest = False
     while True:
-        job_id = state.get_or_create_demo_job(research.GOAL, config.TOTAL_STEPS)
-        run_persistent(job_id, region, standby=False, control_addr=control_addr)
+        pause_seconds = random.uniform(config.IDLE_PAUSE_MIN_SECONDS, config.IDLE_PAUSE_MAX_SECONDS)
+        result = state.get_or_create_demo_job(research.GOAL, config.TOTAL_STEPS, pause_seconds)
+        if result["resting"]:
+            if not announced_rest:
+                print(f"[{region}] job finished — idle pause, next job starts in ~{result['seconds_left']:.0f}s")
+                announced_rest = True
+            time.sleep(max(min(result["seconds_left"], 5.0), 0.5))
+            continue
+        if announced_rest:
+            print(f"[{region}] idle pause over — next job claimed: {result['job_id']}")
+            announced_rest = False
+        run_persistent(result["job_id"], region, standby=False, control_addr=control_addr)
 
 
 def run_ephemeral(region: str):

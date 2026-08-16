@@ -73,10 +73,16 @@ def index():
 
 @app.get("/api/status")
 def api_status():
+    """resting is None while a job is running; otherwise the burn-rate
+    throttle's idle-pause info (round 2) so the UI can say "next job
+    starts shortly" instead of looking dead between jobs."""
     job_id = state.get_demo_job_id()
     if job_id is None:
-        return {"job_id": None, "step": None, "total_steps": None, "lease": None}
-    return state.get_job_snapshot(job_id)
+        return {
+            "job_id": None, "step": None, "total_steps": None, "lease": None,
+            "resting": state.get_resting_status(),
+        }
+    return {**state.get_job_snapshot(job_id), "resting": None}
 
 
 @app.get("/api/monitor/stream")

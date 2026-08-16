@@ -73,3 +73,14 @@ CONTROL_SHARED_SECRET = os.environ.get("CONTROL_SHARED_SECRET", "dev-local-only-
 # of the fast lease claim (reproduced 3/3 in the demo rehearsal: 23.8s,
 # 44.1s, 63.3s). 120s gives real margin above the measured range.
 KILL_COOLDOWN_SECONDS = float(os.environ.get("KILL_COOLDOWN_SECONDS", "120"))
+
+# Burn-rate throttle (round 2, 2026-08-16, DECISION_LOG.md): continuous
+# --auto-mode Opus generation exhausted the Anthropic account's monthly
+# spend cap once already. An idle pause between finished jobs cuts
+# sustained duty cycle from 100% to ~80-85% (jobs run ~5.6min; a 60-90s
+# pause keeps most of the runtime still doing real generation) while a
+# resting arena still tells a visitor a job is coming, honestly, rather
+# than looking dead. User-approved range: 60-90s (amended down from an
+# initial 2-3min proposal). See state.py's get_or_create_demo_job.
+IDLE_PAUSE_MIN_SECONDS = float(os.environ.get("IDLE_PAUSE_MIN_SECONDS", "60"))
+IDLE_PAUSE_MAX_SECONDS = float(os.environ.get("IDLE_PAUSE_MAX_SECONDS", "90"))
