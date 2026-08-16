@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 import config
+import embeddings
 import monitor
 import recall as recall_module
 import state
@@ -43,6 +44,12 @@ def _broadcast(event_type: str, stream_fn):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Revision (Examiner P2, 2026-08-16): the sentence-transformers model
+    # loads lazily on first use, measured at ~28s — an unlucky first-ever
+    # visitor right after a deploy would stall on that. Warm it now, before
+    # the app starts accepting connections, so every real recall call only
+    # ever sees the ~0.2-0.4s steady-state path.
+    await asyncio.to_thread(embeddings.embed, "warmup")
     threading.Thread(target=_broadcast, args=("memory_write", monitor.stream_memory_writes), daemon=True).start()
     threading.Thread(target=_broadcast, args=("output_chunk", monitor.stream_output_chunks), daemon=True).start()
     threading.Thread(target=_broadcast, args=("lease", monitor.stream_lease), daemon=True).start()

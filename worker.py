@@ -169,30 +169,52 @@ def step_kind_for(step_index: int) -> str:
 
 
 def run_persistent_step(job_id: str, owner: str, region: str) -> bool:
-    """Runs (or resumes) exactly one step. Returns False when the job is done."""
+    """Runs (or resumes) exactly one step. Returns False when the job is done.
+    Retries the LLM call on a transient failure (rate limit, timeout,
+    connection drop) — project_brief.md's own prescribed remedy, previously
+    unimplemented (Examiner P1, 2026-08-16). Reuses the same resume_seed
+    mechanism built for cross-region standby continuation: on retry, the
+    prompt is rebuilt from whatever text was already flushed, so a mid-step
+    failure loses at most the in-flight chunk, same as a real kill."""
     step, total_steps, plan_text, partial_output, findings = read_state(job_id)
     if step > total_steps:
         return False
 
-    prompt = research.build_prompt(step, plan_text, findings, resume_seed=partial_output)
     seq = next_chunk_seq(job_id, step)
     full_text = partial_output
-    last_flush = time.monotonic()
-    buffer = ""
 
     print(f"\n[STEP {step}/{total_steps}] [{region}] ", end="", flush=True)
-    for delta in llm.step_stream(prompt):
-        print(delta, end="", flush=True)
-        buffer += delta
-        full_text += delta
-        now = time.monotonic()
-        if now - last_flush >= CHUNK_FLUSH_SECONDS:
-            flush_chunk(job_id, step, seq, buffer, region, owner)
-            seq += 1
-            buffer = ""
-            last_flush = now
-    if buffer:
-        flush_chunk(job_id, step, seq, buffer, region, owner)
+    for attempt in range(config.STEP_MAX_RETRIES + 1):
+        prompt = research.build_prompt(step, plan_text, findings, resume_seed=full_text)
+        buffer = ""
+        last_flush = time.monotonic()
+        try:
+            for delta in llm.step_stream(prompt):
+                print(delta, end="", flush=True)
+                buffer += delta
+                full_text += delta
+                now = time.monotonic()
+                if now - last_flush >= CHUNK_FLUSH_SECONDS:
+                    flush_chunk(job_id, step, seq, buffer, region, owner)
+                    seq += 1
+                    buffer = ""
+                    last_flush = now
+            if buffer:
+                flush_chunk(job_id, step, seq, buffer, region, owner)
+            break
+        except Exception as e:
+            if buffer:
+                flush_chunk(job_id, step, seq, buffer, region, owner)
+                seq += 1
+            if attempt >= config.STEP_MAX_RETRIES:
+                raise
+            wait = config.STEP_RETRY_BACKOFF_SECONDS * (2 ** attempt)
+            print(
+                f"\n[STEP {step}/{total_steps}] [{region}] retrying step {step} "
+                f"({type(e).__name__}, attempt {attempt + 2}/{config.STEP_MAX_RETRIES + 1})",
+                flush=True,
+            )
+            time.sleep(wait)
     print()
 
     finalize_step(job_id, step, total_steps, full_text, region, step_kind_for(step))
