@@ -19,13 +19,16 @@ Built for the CockroachDB × AWS Hackathon — "Build with Agentic Memory"
 write/read loop (LLM step streamed and persisted chunk-by-chunk, embedded,
 read back and asserted).
 
-**M1 (the kill and the resume) in progress.** `worker.py` implements the
+**M1 (the kill and the resume) complete.** `worker.py` implements the
 transactional step-loop, lease + standby failover, and ephemeral (amnesia)
-mode. All verified against the live cluster with real `kill -9` on real
-processes, not simulated — see `deployments.md` for what was tested and two
-real concurrency bugs found and fixed along the way. Remaining for M1: a
-full timed 20-step run, and re-measuring failover latency during the actual
-demo rehearsal rather than a single dev-machine sample.
+mode; `research.py` and `corpus/` implement the 20-step research pipeline;
+`scripts/seed_memories.py` seeds curated episodic memories for Beat 4. All
+verified against the live cluster with real `kill -9` on real processes,
+not simulated — see `deployments.md` for what was tested, two real
+concurrency bugs found and fixed along the way, and a full unattended
+20-step run (5.64 min, slightly over the 3-5 min target). Failover latency
+needs re-measurement during the actual demo rehearsal rather than trusting
+a single dev-machine sample. M2 (brain monitor, recall query, MCP) is next.
 
 ## Disclosures
 
