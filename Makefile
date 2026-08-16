@@ -1,4 +1,4 @@
-.PHONY: setup demo-reset worker standby ephemeral verify arena seed-memories
+.PHONY: setup demo-reset worker standby ephemeral verify arena seed-memories deploy demo-url
 
 setup:
 	uv sync
@@ -23,3 +23,9 @@ seed-memories:
 
 arena:
 	uv run uvicorn arena:app --host 0.0.0.0 --port 8000
+
+deploy:
+	./deploy/deploy.sh
+
+demo-url:
+	@aws elbv2 describe-load-balancers --region us-east-1 --names ninelives-arena --query 'LoadBalancers[0].DNSName' --output text

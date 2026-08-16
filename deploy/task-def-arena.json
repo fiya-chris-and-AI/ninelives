@@ -1,0 +1,29 @@
+{
+  "family": "ninelives-arena",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::540646170532:role/ninelivesTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "arena",
+      "image": "540646170532.dkr.ecr.us-east-1.amazonaws.com/ninelives:latest",
+      "essential": true,
+      "portMappings": [{ "containerPort": 8000, "protocol": "tcp" }],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:ssm:us-east-1:540646170532:parameter/ninelives/DATABASE_URL" },
+        { "name": "CONTROL_SHARED_SECRET", "valueFrom": "arn:aws:ssm:us-east-1:540646170532:parameter/ninelives/CONTROL_SHARED_SECRET" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ninelives-arena",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "arena",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ]
+}

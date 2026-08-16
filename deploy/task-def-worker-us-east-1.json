@@ -1,0 +1,37 @@
+{
+  "family": "ninelives-worker-us-east-1",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::540646170532:role/ninelivesTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "540646170532.dkr.ecr.us-east-1.amazonaws.com/ninelives:latest",
+      "essential": true,
+      "command": [".venv/bin/python", "worker.py", "--region", "us-east-1", "--auto"],
+      "portMappings": [{ "containerPort": 8100, "protocol": "tcp" }],
+      "linuxParameters": { "initProcessEnabled": true },
+      "environment": [
+        { "name": "LLM_PROVIDER", "value": "anthropic" },
+        { "name": "EMBEDDING_PROVIDER", "value": "local" },
+        { "name": "CONTROL_PORT", "value": "8100" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:ssm:us-east-1:540646170532:parameter/ninelives/DATABASE_URL" },
+        { "name": "ANTHROPIC_API_KEY", "valueFrom": "arn:aws:ssm:us-east-1:540646170532:parameter/ninelives/ANTHROPIC_API_KEY" },
+        { "name": "CONTROL_SHARED_SECRET", "valueFrom": "arn:aws:ssm:us-east-1:540646170532:parameter/ninelives/CONTROL_SHARED_SECRET" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ninelives-worker-us-east-1",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "worker",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ]
+}

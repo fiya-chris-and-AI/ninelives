@@ -18,7 +18,7 @@
 - Bedrock model access: **blocked** as of 2026-08-16. `anthropic.claude-opus-5` and `amazon.titan-embed-text-v2` both return `authorizationStatus: NOT_AUTHORIZED` via `aws bedrock get-foundation-model-availability`. The Anthropic use-case form in the console fails at the account level ("account is not authorized" — marketplace/agreement gate). AWS support case `178690525700030` filed, ~24h response expected.
   - Interim while blocked: LLM step calls the Anthropic API directly (`ANTHROPIC_API_KEY` in `.env.ninelives`); embeddings use a local `sentence-transformers` model (`all-MiniLM-L6-v2`, 384 dims). Both verified working end-to-end in the M0 spike (2026-08-16).
   - Swap back to Bedrock once the support case clears: set `LLM_PROVIDER=bedrock` and `EMBEDDING_PROVIDER=bedrock` in `.env`. No other code changes (see `llm.py`, `embeddings.py`, `config.py`).
-- ECS Fargate (M3, deferred): not yet provisioned. Two regions planned — us-east-1 (primary worker) and eu-central-1 (standby worker) — plus the arena service behind an ALB on us-east-1. Explicit go-ahead required before provisioning (cost-incurring, confirmed with user 2026-08-16).
+- ECS Fargate (M3): **provisioned and live 2026-08-16**, user go-ahead given with 5 constraints (secrets via SSM only, smallest sizes, exactly 2 services + 1 ALB / no NAT, ALB URL permanent, re-measure failover in the deployed setup) — see M3 section below for the full record against each constraint.
 - Bedrock region check: `eu-central-1` lists `anthropic.claude-opus-5` and inference profile `eu.anthropic.claude-opus-5` as available, same authorization-gate status as us-east-1 (account-level, not region-specific).
 
 ## GitHub
@@ -48,11 +48,44 @@ Tested with real primary + standby processes against the live cluster, real `kil
 
 **Recall/monitor demo data:** left clean at 1 job (the curated seed job), 5 `memory_events` rows — no stray test data from this session's verification runs.
 
-## Open items for M2+
+## M3 — F10 (hosted arena) + F11 (ECS Fargate deployment), live 2026-08-16
 
-- [ ] Re-measure F2 failover timing during the real Feature-Freeze demo rehearsal (3x cold) — current number is one dev-machine sample, not a rehearsal result
-- [ ] F3 pacing is ~13% over the 3-5 min target (5.64 min observed) — consider tuning `STEP_MAX_TOKENS` down if demo pacing requires it
-- [ ] F10-F11 (arena UI with worker panes + KILL AGENT button, ECS/ALB deployment) — M3, pending explicit go-ahead on AWS spend
+User go-ahead given with 5 constraints (see `DECISION_LOG.md`). Record against each:
+
+1. **Secrets:** `DATABASE_URL`, `ANTHROPIC_API_KEY`, `CONTROL_SHARED_SECRET` live only as SSM `SecureString` parameters under `/ninelives/*`, one copy per region (task-def secret references must be same-region). Task definitions (`deploy/task-def-*.json`, committed) reference them by ARN via the `secrets` block — no plaintext secret ever appears in the image, a task def, or this repo.
+2. **Cost floor:** `0.25 vCPU / 1024 MB` per task (arena + both workers), not the 512MB floor originally planned — see "sizing" below for why. Exactly 2 ECS services in us-east-1 (arena, worker) + 1 in eu-central-1 (worker) + 1 ALB. No NAT gateway: both regions' **default VPCs** have public subnets with an internet gateway already, so every task runs with `assignPublicIp=ENABLED` in a public subnet instead.
+3. **LLM provider:** both worker task defs set `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local` explicitly (Track B, unchanged) — no Bedrock calls attempted from either region.
+4. **ALB URL is the permanent demo URL:** `http://ninelives-arena-1808152051.us-east-1.elb.amazonaws.com/` — created once via `bootstrap.sh`, `deploy.sh` only pushes new images and forces new deployments, never recreates the load balancer.
+5. **Failover re-measured in the deployed setup:** done, see below — **3.1s**, replacing the 5.0s dev-machine sample (M1) as the number of record.
+
+### Sizing — measured, not guessed
+
+Ran the built image locally via `docker run` against the live cluster before ever touching ECS (`docker stats`, real recall + real worker step, model loaded): arena **525MB**, worker **471MB** after their first `sentence-transformers` call. The Fargate 512MB tier (the constraint's starting point) would already be past that with the model warm and zero margin for concurrent requests, GC, or OS overhead — a container OOM-kill would look exactly like the demo's own kill button, undetectable as a real bug during a rehearsal. Sized up to the next tier, 1024MB, which is comfortably above the measured footprint. Not measured beyond one steady-state sample; if usage grows under real demo load, the lever is documented in `deploy/bootstrap.sh`.
+
+### Real bugs found only by running the built container (not by inspection)
+
+- **PID 1 self-`SIGKILL` is a no-op.** `os.kill(os.getpid(), signal.SIGKILL)` (control.py's kill mechanism) silently did nothing when the worker process is PID 1 inside its own container — confirmed with an isolated one-line repro (`docker run ninelives:local python -c "os.kill(os.getpid(), SIGKILL)"` printed a line that should be unreachable, exit code 0). This is a documented Linux kernel special case: the init process of a PID namespace is immune to the default action of signals it hasn't handled, including `SIGKILL`, when the signal originates *inside* the same namespace — `docker kill`/ECS-initiated stops (which signal from outside the namespace) are unaffected, only this exact self-kill pattern is. Fixed with `linuxParameters.initProcessEnabled: true` on both worker task defs (inserts `tini` as real PID 1; the app becomes PID 2+, where ordinary `SIGKILL` semantics apply) — reproduced the fix locally with `docker run --init` before deploying (app process became PID 6, self-kill exited 137 as expected). The arena task doesn't need this (nothing ever signals it to kill itself).
+- **`uv run` at container runtime silently undoes build-time package surgery.** Building with `sentence-transformers` pulls PyPI's default Linux `torch` wheel, which is CUDA-enabled (~2GB of unused `nvidia-*`/`cuda-*`/`triton` packages — irrelevant on Fargate's CPU-only tasks). Force-reinstalling the CPU wheel and removing the orphaned CUDA packages at build time worked, but the Dockerfile's original `CMD ["uv", "run", "uvicorn", ...]` re-triggered a full `uv sync` against `uv.lock` on every container start — silently re-installing the CUDA build I'd just removed and ballooning the image to 5.4GB with a slow, network-dependent cold start. Fixed by invoking `.venv/bin/uvicorn`/`.venv/bin/python` directly everywhere at runtime (Dockerfile `CMD` and both worker task defs' `command`) — `uv` is a build-time tool only now. Final image: CPU-only `torch==2.13.0+cpu`, zero `nvidia-*`/`cuda-*`/`triton` packages (verified by listing site-packages inside the built image), 3.23GB.
+- **`sslmode=verify-full` needs a CA file that only existed on the dev machine.** The live `DATABASE_URL` (unchanged since M0) requires `~/.postgresql/root.crt` for certificate verification; a fresh container has no such file, so every DB connection failed with a clear `root certificate file ... does not exist` error on first container run. Tried `sslrootcert=system` first (zero-file fix) — failed with `certificate verify failed` even though the cert is Let's Encrypt's ISRG Root X1 (`openssl x509 -noout -subject -issuer`: self-signed, valid to 2035, not cluster-specific), likely because `python:3.12-slim` doesn't ship a populated CA bundle. Copied the working local cert to `deploy/cockroachdb-ca.crt` (committed — it's a public root cert, no key material, safe to publish) and `COPY`+placed it at `/root/.postgresql/root.crt` in the Dockerfile. Verified against the live cluster from inside the built image before deploying.
+- **`awslogs-create-group: true` isn't enough on its own.** The AWS-managed `AmazonECSTaskExecutionRolePolicy` allows writing to existing log groups but not `logs:CreateLogGroup` — the first deploy attempt for all three services failed repeatedly (`AccessDeniedException`) until an inline policy grant + pre-created log groups fixed it. Now baked into `bootstrap.sh` and the execution role.
+
+### Failover, measured in the deployed setup (constraint 5)
+
+Killed the currently-active `us-east-1` task via the real `POST /api/kill` against the live ALB URL, with `eu-central-1` confirmed already warm (both services steady-state, not mid-replacement — see note below on why the *first* attempt was invalid). Tight-polled `/api/status` from outside AWS entirely (this machine, over the public internet):
+
+- Kill call round-trip: **0.43s**
+- `eu-central-1` visible as the new lease holder: **+3.12s** after the kill call started
+
+**3.1s total, comfortably inside the ≤5s bar** (F2 acceptance) and better than M1's 5.0s dev-machine sample — real cross-region network path, real Anthropic API call for the resumed step, no shortcuts. Superseded number for the Feature-Freeze rehearsal comparison; the M1 5.0s figure is now historical.
+
+*Invalid first attempt, for the record:* killing both regions in quick succession (testing methodology, not a product bug) left the "standby" region itself mid-Fargate-replacement (ECS's own `desired_count=1` recovery, ~60-90s cold start, unrelated to the app's ~3s in-app failover) at the moment of the second kill — no region claimed the lease for over 8s in that specific case. Documented so the Examiner doesn't rediscover the same false alarm: a double-kill inside one ECS task's replacement window is not the demo's actual failure mode (a juror kills one region while the other has been running the whole time) and isn't what F2's bar measures.
+
+### Open items for M3+
+
+- [ ] Re-measure F2 failover timing during the real Feature-Freeze demo rehearsal (3x cold) — the 3.1s above is one deployed-infra sample, not a rehearsal result
+- [ ] F3 pacing is ~13% over the 3-5 min target (5.64 min observed, M1) — unaddressed this round; flagged for the Examiner
 - [ ] Flip repo to public before T-2h submission
-- [ ] Swap Bedrock back in once support case 178690525700030 clears
+- [ ] Swap Bedrock back in once support case 178690525700030 clears (both worker task defs would need `LLM_PROVIDER=bedrock`/`EMBEDDING_PROVIDER=bedrock` plus a Bedrock IAM permission on the task role, not yet granted)
 - [ ] Verify `mcp-cluster-id` OAuth grant survives a session restart / doesn't need re-auth before the demo rehearsal
+- [ ] Cost check: 3× (0.25 vCPU/1GB) Fargate tasks running continuously + 1 ALB. Rough estimate ~$1.60-2/day at current AWS list pricing (not a billing-API-verified number) — in the same range as the ~$1.50-2.50/day estimate given at go-ahead despite the memory bump from 512MB→1GB (memory is a small fraction of Fargate's per-task cost). Worth a real Cost Explorer check after 24h live.
+- [ ] Worker control port (8100) is open `0.0.0.0/0` in both regions' security groups, gated only by the shared-secret header at the app layer (control.py) — no VPC peering exists between us-east-1 and eu-central-1 in the time available, so a narrower CIDR isn't possible without one. Documented tradeoff (`deploy/bootstrap.sh`), not an oversight; flagged for the Examiner's adversarial pass.

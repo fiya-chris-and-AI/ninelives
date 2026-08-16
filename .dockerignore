@@ -7,6 +7,7 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 *.log
+.git/
 .coverage
 *.egg-info/
 dist/
@@ -15,6 +16,4 @@ credentials.json
 *.pem
 *.crt
 *.key
-# public CA root cert (no key material), needed at Docker build time — see deployments.md
-!deploy/cockroachdb-ca.crt
 node_modules/

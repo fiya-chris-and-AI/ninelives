@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameters"],
+      "Resource": "arn:aws:ssm:*:540646170532:parameter/ninelives/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt"],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "kms:ViaService": ["ssm.us-east-1.amazonaws.com", "ssm.eu-central-1.amazonaws.com"] }
+      }
+    }
+  ]
+}
