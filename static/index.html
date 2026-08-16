@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ninelives — the mind is a database</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    background: #0a0e0a; color: #c9f5c9; margin: 0; padding: 24px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.04em; margin: 0 0 4px; color: #e8fff0; }
+  .sub { color: #6f9a7a; font-size: 12px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel { border: 1px solid #1e3a24; border-radius: 4px; background: #0d130d; }
+  .panel-head {
+    padding: 8px 12px; border-bottom: 1px solid #1e3a24; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.08em; color: #6f9a7a; display: flex;
+    justify-content: space-between;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #3a5a40; display: inline-block; margin-right: 6px; }
+  .dot.live { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+  #feed { height: 420px; overflow-y: auto; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; }
+  .event { padding: 6px 0; border-bottom: 1px dashed #16241a; }
+  .event:last-child { border-bottom: none; }
+  .meta { color: #6f9a7a; font-size: 11px; }
+  .meta b { color: #a3d9b1; }
+  .content { color: #d7ffe0; margin-top: 2px; white-space: pre-wrap; }
+  .empty { color: #4a6b52; padding: 12px; }
+  form { padding: 12px; display: flex; gap: 8px; }
+  input[type=text] {
+    flex: 1; background: #0a0e0a; border: 1px solid #1e3a24; color: #e8fff0;
+    padding: 8px 10px; font-family: inherit; font-size: 12.5px; border-radius: 3px;
+  }
+  button {
+    background: #163a20; color: #c9f5c9; border: 1px solid #2a5a36; padding: 8px 14px;
+    font-family: inherit; font-size: 12px; border-radius: 3px; cursor: pointer;
+  }
+  button:hover { background: #1e4a2a; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #answer { padding: 0 12px 12px; font-size: 13px; color: #e8fff0; min-height: 20px; white-space: pre-wrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin: 0 12px 12px; width: calc(100% - 24px); }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #16241a; vertical-align: top; }
+  th { color: #6f9a7a; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
+  td.content-cell { color: #a3d9b1; }
+  .curated-tag { color: #d9a441; font-size: 10px; margin-left: 6px; }
+</style>
+</head>
+<body>
+  <h1>NINELIVES — BRAIN MONITOR</h1>
+  <div class="sub">the process is disposable; the database is the mind. every write below is a real CockroachDB transaction.</div>
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-head"><span><span class="dot" id="monitor-dot"></span>memory_events — live</span><span id="monitor-status">connecting…</span></div>
+      <div id="feed"><div class="empty">no writes yet — start a worker (make worker) or seed memories</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span>recall — ask the survivor</span></div>
+      <form id="recall-form">
+        <input type="text" id="question" placeholder="what did you find before the crash?" autocomplete="off">
+        <button type="submit" id="ask-btn">ask</button>
+      </form>
+      <div id="answer"></div>
+      <table id="provenance" style="display:none">
+        <thead><tr><th>ts</th><th>region</th><th>step</th><th>source</th><th>excerpt</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+const feed = document.getElementById("feed");
+const dot = document.getElementById("monitor-dot");
+const status = document.getElementById("monitor-status");
+let seenEmpty = true;
+
+const es = new EventSource("/api/monitor/stream");
+es.onopen = () => { dot.classList.add("live"); status.textContent = "streaming"; };
+es.onerror = () => { dot.classList.remove("live"); status.textContent = "reconnecting…"; };
+es.addEventListener("memory_write", (e) => {
+  const ev = JSON.parse(e.data);
+  if (seenEmpty) { feed.innerHTML = ""; seenEmpty = false; }
+  const row = document.createElement("div");
+  row.className = "event";
+  const curated = ev.curated ? '<span class="curated-tag">[curated]</span>' : "";
+  row.innerHTML =
+    `<div class="meta"><b>${escapeHtml(ev.region)}</b> · step ${ev.step} · ${escapeHtml(ev.kind)} · ${escapeHtml(ev.ts)}${curated}</div>` +
+    `<div class="content">${escapeHtml(ev.content)}</div>`;
+  feed.prepend(row);
+});
+
+const form = document.getElementById("recall-form");
+const answerEl = document.getElementById("answer");
+const provTable = document.getElementById("provenance");
+const provBody = provTable.querySelector("tbody");
+const askBtn = document.getElementById("ask-btn");
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = document.getElementById("question").value.trim();
+  if (!question) return;
+  askBtn.disabled = true;
+  answerEl.textContent = "thinking…";
+  provTable.style.display = "none";
+  try {
+    const res = await fetch("/api/recall", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    const data = await res.json();
+    answerEl.textContent = data.answer;
+    provBody.innerHTML = "";
+    for (const p of data.provenance) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${escapeHtml(p.ts)}</td><td>${escapeHtml(p.region)}</td><td>${p.step}</td>` +
+        `<td>${escapeHtml(p.source || "")}${p.curated ? ' <span class="curated-tag">curated</span>' : ""}</td>` +
+        `<td class="content-cell">${escapeHtml(p.content.slice(0, 140))}${p.content.length > 140 ? "…" : ""}</td>`;
+      provBody.appendChild(tr);
+    }
+    provTable.style.display = data.provenance.length ? "table" : "none";
+  } catch (err) {
+    answerEl.textContent = "recall failed: " + err;
+  } finally {
+    askBtn.disabled = false;
+  }
+});
+
+function escapeHtml(s) {
+  const d = document.createElement("div");
+  d.textContent = s ?? "";
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

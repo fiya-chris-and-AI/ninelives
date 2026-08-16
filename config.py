@@ -39,3 +39,13 @@ TOTAL_STEPS = int(os.environ.get("TOTAL_STEPS", "20"))
 LEASE_TTL_SECONDS = float(os.environ.get("LEASE_TTL_SECONDS", "2"))
 LEASE_HEARTBEAT_SECONDS = float(os.environ.get("LEASE_HEARTBEAT_SECONDS", "0.5"))
 STANDBY_POLL_SECONDS = float(os.environ.get("STANDBY_POLL_SECONDS", "0.25"))
+
+# F7 brain monitor: "changefeed" (primary) or "poll" (documented fallback
+# from project_brief.md Failure States; also used automatically if the
+# changefeed can't be opened). Both paths land the same event shape on
+# the SSE panel.
+MONITOR_MODE = os.environ.get("MONITOR_MODE", "changefeed")
+MONITOR_POLL_SECONDS = float(os.environ.get("MONITOR_POLL_SECONDS", "1"))
+
+# F8 recall: how many nearest memory_events rows back an answer.
+RECALL_TOP_K = int(os.environ.get("RECALL_TOP_K", "5"))

@@ -28,7 +28,15 @@ not simulated — see `deployments.md` for what was tested, two real
 concurrency bugs found and fixed along the way, and a full unattended
 20-step run (5.64 min, slightly over the 3-5 min target). Failover latency
 needs re-measurement during the actual demo rehearsal rather than trusting
-a single dev-machine sample. M2 (brain monitor, recall query, MCP) is next.
+a single dev-machine sample.
+
+**M2 (the mind visible) complete.** `arena.py` serves the brain monitor
+(`monitor.py`, F7) and the recall endpoint (`recall.py`, F8); the
+CockroachDB Cloud Managed MCP Server is connected (F9). All verified
+against the live cluster — see `deployments.md` for the changefeed vs.
+polling decision, the recall-latency finding that changed the answer
+design, and the recorded MCP query. M3 (arena UI + ECS/ALB deployment) is
+next, pending explicit go-ahead on the AWS spend.
 
 ## Disclosures
 
@@ -61,9 +69,18 @@ Two thin processes:
   CockroachDB; renews/claims a lease, streams a reasoning step, persists
   output chunks as they arrive, and on step completion writes the step
   result, an embedded memory event, and advances `job_state`.
-- `arena.py` — FastAPI: SSE streams of both workers, the kill endpoint, the
-  memory query endpoint, and the static arena page (vanilla JS, no build
-  step).
+- `arena.py` — FastAPI orchestration only: the brain monitor SSE endpoint
+  and the recall endpoint, routed to `monitor.py` and `recall.py`. Worker
+  panes + the KILL AGENT endpoint are M3, not built yet.
+- `monitor.py` (F7) — one background thread reads `memory_events` writes
+  live (CockroachDB core changefeed, no sink; falls back to 1s polling if
+  the changefeed can't be opened) and fans them out to every connected SSE
+  client.
+- `recall.py` (F8) — vector-searches `memory_events` for a question; the
+  answer is the top-ranked row's content, not an LLM re-synthesis (see
+  `deployments.md` for why — a synthesized answer missed the <3s bar).
+
+Run the arena locally: `make arena`, then open `http://localhost:8000`.
 
 Schema (see `schema/schema.sql`):
 

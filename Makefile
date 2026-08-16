@@ -1,4 +1,4 @@
-.PHONY: setup demo-reset worker standby ephemeral verify
+.PHONY: setup demo-reset worker standby ephemeral verify arena seed-memories
 
 setup:
 	uv sync
@@ -17,3 +17,9 @@ ephemeral:
 
 verify:
 	uv run python scripts/spike_m0.py
+
+seed-memories:
+	uv run python scripts/seed_memories.py
+
+arena:
+	uv run uvicorn arena:app --host 0.0.0.0 --port 8000
