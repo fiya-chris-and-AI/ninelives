@@ -23,7 +23,18 @@ CREATE TABLE IF NOT EXISTS lease (
     job_id UUID PRIMARY KEY REFERENCES jobs(id),
     owner TEXT NOT NULL,
     region TEXT NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL
+    expires_at TIMESTAMPTZ NOT NULL,
+    control_addr TEXT -- F10: this worker's kill-control endpoint, e.g. http://host:port
+);
+
+-- F10/F11: single shared row pointing at "the" demo job, so both
+-- independently-deployed worker services (different AWS regions, no
+-- other coordination) converge on the same job to contend a lease over,
+-- instead of each silently creating its own. Claimed the same way as
+-- `lease` itself: SELECT ... FOR UPDATE under CockroachDB SERIALIZABLE.
+CREATE TABLE IF NOT EXISTS demo_pointer (
+    id INT PRIMARY KEY DEFAULT 1,
+    job_id UUID REFERENCES jobs(id)
 );
 
 CREATE TABLE IF NOT EXISTS output_chunks (

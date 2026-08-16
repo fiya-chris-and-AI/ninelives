@@ -12,15 +12,24 @@ Usage:
 """
 import argparse
 import os
+import sys
 import threading
 import time
 import uuid
 
 import config
+import control
 import db
 import llm
 import embeddings
 import research
+import state
+
+# Standby-mode prints (no per-token flush=True to piggyback on) would
+# otherwise sit in Python's block buffer until it fills — invisible in
+# CloudWatch until then. Line-buffer the whole process instead of adding
+# flush=True to every print call.
+sys.stdout.reconfigure(line_buffering=True)
 
 CHUNK_FLUSH_SECONDS = 1.0
 
@@ -44,8 +53,11 @@ def create_job(goal: str, total_steps: int) -> str:
     return job_id
 
 
-def claim_or_renew_lease(job_id: str, owner: str, region: str) -> bool:
-    """Returns True if this owner now holds the lease."""
+def claim_or_renew_lease(job_id: str, owner: str, region: str, control_addr: str = None) -> bool:
+    """Returns True if this owner now holds the lease. control_addr (F10)
+    is this worker's kill-control endpoint — written on every claim/renew
+    so the arena's kill button always has a fresh address for whoever is
+    currently active."""
     ttl = config.LEASE_TTL_SECONDS
 
     def txn(conn):
@@ -54,17 +66,17 @@ def claim_or_renew_lease(job_id: str, owner: str, region: str) -> bool:
             row = cur.fetchone()
             if row is None:
                 cur.execute(
-                    "INSERT INTO lease (job_id, owner, region, expires_at) "
-                    "VALUES (%s, %s, %s, now() + (%s || ' seconds')::interval)",
-                    (job_id, owner, region, ttl),
+                    "INSERT INTO lease (job_id, owner, region, expires_at, control_addr) "
+                    "VALUES (%s, %s, %s, now() + (%s || ' seconds')::interval, %s)",
+                    (job_id, owner, region, ttl, control_addr),
                 )
                 return True
             current_owner, expired = row
             if current_owner == owner or expired:
                 cur.execute(
-                    "UPDATE lease SET owner = %s, region = %s, expires_at = now() + (%s || ' seconds')::interval "
-                    "WHERE job_id = %s",
-                    (owner, region, ttl, job_id),
+                    "UPDATE lease SET owner = %s, region = %s, expires_at = now() + (%s || ' seconds')::interval, "
+                    "control_addr = %s WHERE job_id = %s",
+                    (owner, region, ttl, control_addr, job_id),
                 )
                 return True
             return False
@@ -187,7 +199,7 @@ def run_persistent_step(job_id: str, owner: str, region: str) -> bool:
     return step < total_steps
 
 
-def _lease_heartbeat(job_id: str, owner: str, region: str, stop_event: threading.Event):
+def _lease_heartbeat(job_id: str, owner: str, region: str, control_addr: str, stop_event: threading.Event):
     """Renews the lease on a fixed cadence, independent of chunk flushing.
     Without this, a step with long thinking latency before its first token
     can outlast LEASE_TTL_SECONDS and get falsely evicted by a live standby
@@ -195,18 +207,18 @@ def _lease_heartbeat(job_id: str, owner: str, region: str, stop_event: threading
     with the process — no orphaned renewals survive a real kill."""
     while not stop_event.wait(config.LEASE_HEARTBEAT_SECONDS):
         try:
-            claim_or_renew_lease(job_id, owner, region)
+            claim_or_renew_lease(job_id, owner, region, control_addr)
         except Exception:
             pass  # next tick retries; a transient failure here must not crash the worker
 
 
-def run_persistent(job_id: str, region: str, standby: bool):
+def run_persistent(job_id: str, region: str, standby: bool, control_addr: str = None):
     owner = f"{region}:{os.getpid()}"
     if standby:
         print(f"[{region}] standby — polling lease every {config.STANDBY_POLL_SECONDS}s")
 
     while True:
-        claimed = claim_or_renew_lease(job_id, owner, region)
+        claimed = claim_or_renew_lease(job_id, owner, region, control_addr)
         if not claimed:
             time.sleep(config.STANDBY_POLL_SECONDS)
             continue
@@ -215,7 +227,7 @@ def run_persistent(job_id: str, region: str, standby: bool):
 
         stop_event = threading.Event()
         heartbeat = threading.Thread(
-            target=_lease_heartbeat, args=(job_id, owner, region, stop_event), daemon=True
+            target=_lease_heartbeat, args=(job_id, owner, region, control_addr, stop_event), daemon=True
         )
         heartbeat.start()
         try:
@@ -227,6 +239,23 @@ def run_persistent(job_id: str, region: str, standby: bool):
         if not more:
             print(f"[{region}] job {job_id} done.")
             return
+
+
+def run_auto(region: str):
+    """F10/F11 continuous demo mode: always a live job for a visitor to
+    kill. Starts the control server once (F10's real self-SIGKILL target),
+    then loops forever — each time the current demo job finishes, claims
+    or creates the next one via state.get_or_create_demo_job, so the
+    arena never sits with nothing running (F10's "auto-reset between
+    visitors")."""
+    control.start_control_server(config.CONTROL_PORT)
+    host = control.discover_host()
+    control_addr = f"http://{host}:{config.CONTROL_PORT}"
+    print(f"[{region}] control server on {control_addr}")
+
+    while True:
+        job_id = state.get_or_create_demo_job(research.GOAL, config.TOTAL_STEPS)
+        run_persistent(job_id, region, standby=False, control_addr=control_addr)
 
 
 def run_ephemeral(region: str):
@@ -257,10 +286,15 @@ def main():
     parser.add_argument("--goal", default=research.GOAL)
     parser.add_argument("--standby", action="store_true")
     parser.add_argument("--no-memory", action="store_true")
+    parser.add_argument("--auto", action="store_true", help="F10/F11: continuous demo mode, see run_auto")
     args = parser.parse_args()
 
     if args.no_memory:
         run_ephemeral(args.region)
+        return
+
+    if args.auto:
+        run_auto(args.region)
         return
 
     job_id = args.job_id

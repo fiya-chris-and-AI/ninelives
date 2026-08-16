@@ -49,3 +49,11 @@ MONITOR_POLL_SECONDS = float(os.environ.get("MONITOR_POLL_SECONDS", "1"))
 
 # F8 recall: how many nearest memory_events rows back an answer.
 RECALL_TOP_K = int(os.environ.get("RECALL_TOP_K", "5"))
+
+# F10: each worker's kill-control server (control.py) and the shared
+# secret the arena presents to it. In deployment this arrives via an ECS
+# task-definition secret reference (SSM/Secrets Manager) — never baked
+# into the image. Local default is dev-only and never used in prod.
+CONTROL_PORT = int(os.environ.get("CONTROL_PORT", "8100"))
+CONTROL_SHARED_SECRET = os.environ.get("CONTROL_SHARED_SECRET", "dev-local-only-secret")
+KILL_COOLDOWN_SECONDS = float(os.environ.get("KILL_COOLDOWN_SECONDS", "30"))
