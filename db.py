@@ -8,19 +8,17 @@ MAX_RETRIES = 5
 
 # Round 2 re-Examine finding (2026-08-16, examiner_report.md P1): a live
 # kill-and-resume test measured a 24.9s lease-claim stall (vs. the ≤5s
-# bar) — 8-10x this app's own designed worst case. Root-cause hypothesis:
-# a SIGKILL landing mid-transaction leaves a write intent on the `lease`
-# row; a plain `psycopg.connect()` with no keepalives or statement
-# timeout lets a subsequent claim attempt block indefinitely waiting for
-# CockroachDB (or its Cloud proxy) to notice the dead session and release
-# it — a wait bounded by server-side detection latency, not by anything
-# LEASE_TTL_SECONDS/STANDBY_POLL_SECONDS control. Not confirmed via
-# direct session inspection; see the P1 write-up for the honest caveat.
-# Keepalives + a statement timeout don't provably fix the server-side
-# detection latency, but they do turn "one call blocks for an unknown,
-# possibly unbounded time" into "every call is capped, and a capped
-# failure is treated as a retry, not a crash" (worker.py's
-# claim_or_renew_lease). Safe as the DEFAULT for every worker/arena
+# bar). Initial hypothesis was a SIGKILL-abandoned write intent on the
+# `lease` row blocking a subsequent claim. Round 3 investigation
+# (2026-08-17, DECISION_LOG.md) DISPROVED that hypothesis with direct
+# evidence: crdb_internal.cluster_locks and SHOW SESSIONS showed zero
+# activity for the entire duration of an induced stall — the real cause
+# was ECS Fargate task-replacement time exceeding config.KILL_COOLDOWN_
+# SECONDS (fixed there, not here). Keepalives + a statement timeout are
+# kept anyway as legitimate, low-risk defense-in-depth — they bound
+# every call's worst case and turn any future stuck-connection scenario
+# into a retry instead of a crash — but they were never the fix for the
+# stall this round chased. Safe as the DEFAULT for every worker/arena
 # transaction (all single small DML statements). NOT safe as a blanket
 # default for every caller: scripts/setup_db.py applies the full,
 # multi-statement schema.sql in one execute() call, which briefly

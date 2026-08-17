@@ -64,15 +64,25 @@ RECALL_TOP_K = int(os.environ.get("RECALL_TOP_K", "5"))
 # into the image. Local default is dev-only and never used in prod.
 CONTROL_PORT = int(os.environ.get("CONTROL_PORT", "8100"))
 CONTROL_SHARED_SECRET = os.environ.get("CONTROL_SHARED_SECRET", "dev-local-only-secret")
-# Revision (Examiner FAIL, 2026-08-16): a kill doesn't just need the
-# standby's in-app lease claim (~2-3s, unaffected by this value) — the
-# region just killed also needs its ECS Fargate task replaced before it's
-# a real standby again. Measured 60-90s in the deployed setup (ECS service
-# event timestamps). 30s let a second kill land while that replacement was
-# still mid-flight, degrading failover to ECS's replacement speed instead
-# of the fast lease claim (reproduced 3/3 in the demo rehearsal: 23.8s,
-# 44.1s, 63.3s). 120s gives real margin above the measured range.
-KILL_COOLDOWN_SECONDS = float(os.environ.get("KILL_COOLDOWN_SECONDS", "120"))
+# Revision round 3 (2026-08-17): a kill doesn't just need the standby's
+# in-app lease claim (~2-3s, unaffected by this value, confirmed clean
+# and fast in every trial where the standby region actually had a live
+# process running) — the region just killed also needs its ECS Fargate
+# task replaced before it's a real standby again. Round 1's 60-90s
+# estimate (indirect, from counting ECS events during concurrent-kill
+# testing) undershot the true figure: round 3's investigation isolated
+# and directly measured two clean single-kill replacement cycles —
+# 161.6s (us-east-1) and 168.9s (eu-central-1), both task startedAt to
+# stoppedAt to new-task-startedAt, confirmed via CloudWatch worker logs
+# showing zero process activity (no [DIAG]/no startup line at all) until
+# the exact moment the replacement container's control server printed
+# its boot line. 120s was NOT enough margin above the true ~160-170s
+# figure — a second kill landing in that gap still caught the "standby"
+# region genuinely not running at all (not a slow DB claim, not a lock,
+# not a connection issue — confirmed via crdb_internal.cluster_locks and
+# SHOW SESSIONS showing zero activity for the full stall duration; see
+# DECISION_LOG.md). 240s gives real margin above the measured range.
+KILL_COOLDOWN_SECONDS = float(os.environ.get("KILL_COOLDOWN_SECONDS", "240"))
 
 # Burn-rate throttle (round 2, 2026-08-16, DECISION_LOG.md): continuous
 # --auto-mode Opus generation exhausted the Anthropic account's monthly

@@ -58,16 +58,24 @@ def create_job(goal: str, total_steps: int) -> str:
 
 def claim_or_renew_lease(job_id: str, owner: str, region: str, control_addr: str = None) -> bool:
     """Returns True if this owner now holds the lease, False if someone
-    else does — including when we can't tell fast enough to know (round 2
-    re-Examine P1: a killed worker's write intent on this row can leave a
-    subsequent claim blocked until CockroachDB detects the dead session;
-    db.py bounds every call with a statement timeout so that block can
-    never exceed STATEMENT_TIMEOUT_MS. A timeout here means the same
-    thing an unclaimed lease already means to every caller of this
-    function — "not yet, try again" — never a crash). control_addr (F10)
-    is this worker's kill-control endpoint — written on every claim/renew
-    so the arena's kill button always has a fresh address for whoever is
-    currently active."""
+    else does. A psycopg.errors.QueryCanceled (db.py's statement timeout,
+    kept as defense-in-depth against any slow claim attempt) is treated
+    the same as an unclaimed lease — "not yet, try again" — never a
+    crash. control_addr (F10) is this worker's kill-control endpoint —
+    written on every claim/renew so the arena's kill button always has a
+    fresh address for whoever is currently active.
+
+    Round 3 investigation (2026-08-17, DECISION_LOG.md): a live
+    kill-and-resume stall (up to ~25s, vs the <=5s target) was traced
+    with direct evidence — crdb_internal.cluster_locks and SHOW SESSIONS
+    showed zero activity for the entire stall, and CloudWatch logs showed
+    zero process activity in the "standby" region until the exact moment
+    its ECS replacement container booted. This function's own claim
+    logic was never the bottleneck: the standby region sometimes had no
+    running worker process at all, because its OWN prior kill's ECS
+    Fargate task replacement (measured 161.6s and 168.9s, two clean
+    isolated samples) was still in progress. The real fix is
+    config.KILL_COOLDOWN_SECONDS, not this function — see config.py."""
     ttl = config.LEASE_TTL_SECONDS
 
     def txn(conn):
