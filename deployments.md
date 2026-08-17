@@ -104,6 +104,17 @@ Built and pushed to `us-east-1` ECR only, `ninelives-arena` service force-redepl
 
 **Observation for the Creative Director's re-check:** the rehearsed Beat-4 question's top-ranked memory is consistently a single, long compound sentence written by the research/synthesis step (observed 80 words in one sample, 93 in another) — `_lead_excerpt` correctly keeps it whole rather than cutting mid-sentence, which puts the visible excerpt somewhat above the "roughly 40-70 words" target in those cases (~80-95 words). This is a content-shape property of how `research.py`'s synthesis prompt writes, not a bug in the truncation logic, and reformatting the agent's own prose was explicitly out of scope for CD1-2 ("this is a presentation fix only"). Flagging it rather than silently absorbing it — still a single complete, honest sentence, well short of the old 349-word wall of text, and still reads cleanly in the 1080p/2x legibility check.
 
+## CD1-3 — verification pass against the new URL, 2026-08-17: PARTIAL (blocked by an unrelated live incident)
+
+Against `https://ninelives.millerandmuller.com`, in real Chrome:
+
+1. **Cold load: PASS.** Fresh tab, default HTTPS-First settings, page rendered directly — no browser error interstitial.
+2. **Kill-and-resume: FAILOVER MECHANISM PASSED, but the job is currently stuck.** Triggered a real kill on eu-central-1 (then-active, step 16/20). us-east-1 claimed the lease and began streaming within roughly one tool round-trip — dead-pane styling, "Process killed. Mind intact." banner, step counter unchanged, all correct and fast, comfortably inside the ≤5s bar. **But:** the resuming worker's next LLM call failed — `anthropic.BadRequestError: 'You have reached your specified API usage limits. You will regain access on 2026-09-01 at 00:00 UTC.'` — retried 4x, crashed, ECS replaced the task, replacement hit the identical error immediately. Confirmed on **both** regions via CloudWatch. Re-checked a minute later: still stuck at step 16/20, lease generation counter climbing (active crash-restart loop). **This is not a CD1-1/CD1-2 defect** — it's an Anthropic account-level usage cap, unrelated to the HTTPS/legibility work. See `DECISION_LOG.md` for full detail.
+3. **Recall query: PASS.** Submitted the rehearsed Beat-4 question through the UI — legible excerpt rendered (CD1-2's fix), "show full answer" toggle present, provenance table intact (3+ rows visible). Unaffected by the LLM outage since `recall.py` only does embed+vector search, no LLM call.
+4. **Screen-recording check: INCOMPLETE.** Couldn't capture a clean continuous recording of a *working* kill-and-resume cycle since the job is stuck mid-resume. What was observed throughout (cold load, kill, immediate lease handoff, recall) showed no browser-chrome warnings or rendering glitches at any point — the browser-recordability concern itself (the original P3 from `examiner_report.md`) is not in question; only the ability to record a *finishing* resume is blocked, and that's downstream of the LLM outage, not a recording/rendering problem.
+
+**Not reporting to the Creative Director for JURY-VERDICT re-check yet** — CD1-3 didn't fully pass, and the actual demo mechanic (step generation) is currently non-functional account-wide regardless of infra correctness.
+
 ### Open items for M3+
 
 - [ ] Re-measure F2 failover timing during the real Feature-Freeze demo rehearsal (3x cold) — the 3.1s above is one deployed-infra sample, not a rehearsal result
