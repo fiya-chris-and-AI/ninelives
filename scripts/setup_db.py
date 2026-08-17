@@ -14,7 +14,12 @@ def main():
     with open(schema_path) as f:
         sql = f.read().replace("{{VECTOR_DIM}}", str(config.EMBEDDING_DIM))
 
-    with db.connect() as conn:
+    # statement_timeout_ms=0 (disabled): db.connect()'s default 3s cap is
+    # sized for worker/arena transactions (single small DML statements),
+    # not this one-time multi-statement DDL apply — it briefly got itself
+    # cancelled mid-schema-creation against the live cluster otherwise
+    # (round 2, 2026-08-16).
+    with db.connect(statement_timeout_ms=0) as conn:
         with conn.cursor() as cur:
             cur.execute(sql)
         conn.commit()

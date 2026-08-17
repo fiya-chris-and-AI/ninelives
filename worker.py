@@ -18,6 +18,8 @@ import threading
 import time
 import uuid
 
+import psycopg
+
 import config
 import control
 import db
@@ -55,7 +57,14 @@ def create_job(goal: str, total_steps: int) -> str:
 
 
 def claim_or_renew_lease(job_id: str, owner: str, region: str, control_addr: str = None) -> bool:
-    """Returns True if this owner now holds the lease. control_addr (F10)
+    """Returns True if this owner now holds the lease, False if someone
+    else does — including when we can't tell fast enough to know (round 2
+    re-Examine P1: a killed worker's write intent on this row can leave a
+    subsequent claim blocked until CockroachDB detects the dead session;
+    db.py bounds every call with a statement timeout so that block can
+    never exceed STATEMENT_TIMEOUT_MS. A timeout here means the same
+    thing an unclaimed lease already means to every caller of this
+    function — "not yet, try again" — never a crash). control_addr (F10)
     is this worker's kill-control endpoint — written on every claim/renew
     so the arena's kill button always has a fresh address for whoever is
     currently active."""
@@ -82,7 +91,10 @@ def claim_or_renew_lease(job_id: str, owner: str, region: str, control_addr: str
                 return True
             return False
 
-    return db.run_txn(txn)
+    try:
+        return db.run_txn(txn)
+    except psycopg.errors.QueryCanceled:
+        return False
 
 
 def read_state(job_id: str):

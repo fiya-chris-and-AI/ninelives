@@ -33,19 +33,30 @@ def get_or_create_demo_job(goal: str, total_steps: int, pause_seconds: float) ->
                 if status_row and status_row[0] == "running":
                     return {"job_id": str(job_id), "resting": False}
 
-                if resting_until is None:
-                    # First caller to see this job as done: start the pause.
-                    cur.execute(
-                        "UPDATE demo_pointer SET resting_until = now() + (%s || ' seconds')::interval WHERE id = 1",
-                        (pause_seconds,),
-                    )
-                    return {"job_id": None, "resting": True, "seconds_left": pause_seconds}
+                # Adversarial finding (round 2, 2026-08-16): status_row is
+                # also None when the pointed-at job was deleted out from
+                # under us (scripts/reset_demo.py drops `jobs` but not
+                # `demo_pointer`) — that is NOT "the job finished", and
+                # must not start an idle pause. Only a job that genuinely
+                # ran to completion (status_row exists and isn't
+                # 'running') earns the burn-rate throttle's rest window;
+                # a vanished job skips straight to claiming a new one
+                # below, so a mid-job demo reset still recovers in the
+                # F4-promised <30s instead of a spurious 60-90s pause.
+                if status_row is not None:
+                    if resting_until is None:
+                        # First caller to see this job as done: start the pause.
+                        cur.execute(
+                            "UPDATE demo_pointer SET resting_until = now() + (%s || ' seconds')::interval WHERE id = 1",
+                            (pause_seconds,),
+                        )
+                        return {"job_id": None, "resting": True, "seconds_left": pause_seconds}
 
-                cur.execute("SELECT GREATEST(EXTRACT(EPOCH FROM (%s - now())), 0)", (resting_until,))
-                seconds_left = float(cur.fetchone()[0])
-                if seconds_left > 0:
-                    return {"job_id": None, "resting": True, "seconds_left": seconds_left}
-                # Pause window elapsed — fall through and claim the next job.
+                    cur.execute("SELECT GREATEST(EXTRACT(EPOCH FROM (%s - now())), 0)", (resting_until,))
+                    seconds_left = float(cur.fetchone()[0])
+                    if seconds_left > 0:
+                        return {"job_id": None, "resting": True, "seconds_left": seconds_left}
+                    # Pause window elapsed — fall through and claim the next job.
 
             new_id = str(uuid.uuid4())
             cur.execute(
