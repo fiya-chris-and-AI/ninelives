@@ -2,13 +2,12 @@
 F8: episodic memory + recall. Vector-searches memory_events for a
 natural-language question; the answer is the top-ranked row's content
 verbatim, not a model-resynthesized paraphrase. Provenance rows come
-straight from SQL — the model can be wrong, the rows cannot
-(project_brief.md AI Capability Notes).
+straight from SQL — the model can be wrong, the rows cannot.
 
 Live-measured tradeoff: an LLM-synthesized answer over the retrieved rows
 was tried first and consistently cost 3.2-4.6s (5 samples against the
 real Anthropic API, Claude Opus 5, effort=low) — thinking-token latency
-the brief's own model guidance forbids disabling — which misses F8's
+the design's model guidance forbids disabling — which misses F8's
 <3s acceptance bar. Quoting the top row directly is embed+search only
 (<1s, profiled) and is still a grounded, on-topic answer: findings and
 seed memories are already written as flowing prose (research.py's "one
@@ -21,9 +20,9 @@ import config
 import db
 import embeddings
 
-# CD1-2 (2026-08-17, creative_prompts_round_1.md): the top row's content
+# CD1-2 (2026-08-17): the top row's content
 # runs up to ~350 words, but Beat 4 gives the answer ~25s of screen time
-# and project_brief.md Section 5's own legibility bar is "readable in a
+# and the design's legibility bar is "readable in a
 # 1080p recording at 2x speed" — a 350-word wall of text fails that
 # regardless of research quality. Cut on a real sentence boundary, never
 # mid-word/mid-clause; the full text stays available (see api_recall's

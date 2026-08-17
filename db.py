@@ -6,11 +6,11 @@ import config
 
 MAX_RETRIES = 5
 
-# Round 2 re-Examine finding (2026-08-16, examiner_report.md P1): a live
+# Review finding (2026-08-16): a live
 # kill-and-resume test measured a 24.9s lease-claim stall (vs. the ≤5s
 # bar). Initial hypothesis was a SIGKILL-abandoned write intent on the
-# `lease` row blocking a subsequent claim. Round 3 investigation
-# (2026-08-17, DECISION_LOG.md) DISPROVED that hypothesis with direct
+# `lease` row blocking a subsequent claim. A follow-up investigation
+# (2026-08-17) DISPROVED that hypothesis with direct
 # evidence: crdb_internal.cluster_locks and SHOW SESSIONS showed zero
 # activity for the entire duration of an induced stall — the real cause
 # was ECS Fargate task-replacement time exceeding config.KILL_COOLDOWN_

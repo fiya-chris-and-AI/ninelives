@@ -65,7 +65,7 @@ def claim_or_renew_lease(job_id: str, owner: str, region: str, control_addr: str
     written on every claim/renew so the arena's kill button always has a
     fresh address for whoever is currently active.
 
-    Round 3 investigation (2026-08-17, DECISION_LOG.md): a live
+    Investigation (2026-08-17): a live
     kill-and-resume stall (up to ~25s, vs the <=5s target) was traced
     with direct evidence — crdb_internal.cluster_locks and SHOW SESSIONS
     showed zero activity for the entire stall, and CloudWatch logs showed
@@ -192,8 +192,8 @@ def step_kind_for(step_index: int) -> str:
 def run_persistent_step(job_id: str, owner: str, region: str) -> bool:
     """Runs (or resumes) exactly one step. Returns False when the job is done.
     Retries the LLM call on a transient failure (rate limit, timeout,
-    connection drop) — project_brief.md's own prescribed remedy, previously
-    unimplemented (Examiner P1, 2026-08-16). Reuses the same resume_seed
+    connection drop) — the design's prescribed remedy, previously
+    unimplemented (found in review, 2026-08-16). Reuses the same resume_seed
     mechanism built for cross-region standby continuation: on retry, the
     prompt is rebuilt from whatever text was already flushed, so a mid-step
     failure loses at most the in-flight chunk, same as a real kill."""

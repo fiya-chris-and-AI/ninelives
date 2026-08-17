@@ -45,10 +45,9 @@ LEASE_TTL_SECONDS = float(os.environ.get("LEASE_TTL_SECONDS", "2"))
 LEASE_HEARTBEAT_SECONDS = float(os.environ.get("LEASE_HEARTBEAT_SECONDS", "0.5"))
 STANDBY_POLL_SECONDS = float(os.environ.get("STANDBY_POLL_SECONDS", "0.25"))
 
-# F7 brain monitor: "changefeed" (primary) or "poll" (documented fallback
-# from project_brief.md Failure States; also used automatically if the
-# changefeed can't be opened). Both paths land the same event shape on
-# the SSE panel.
+# F7 brain monitor: "changefeed" (primary) or "poll" (documented
+# fallback; also used automatically if the changefeed can't be opened).
+# Both paths land the same event shape on the SSE panel.
 MONITOR_MODE = os.environ.get("MONITOR_MODE", "changefeed")
 MONITOR_POLL_SECONDS = float(os.environ.get("MONITOR_POLL_SECONDS", "1"))
 
@@ -77,11 +76,11 @@ CONTROL_SHARED_SECRET = os.environ.get("CONTROL_SHARED_SECRET", "dev-local-only-
 # figure — a second kill landing in that gap still caught the "standby"
 # region genuinely not running at all (not a slow DB claim, not a lock,
 # not a connection issue — confirmed via crdb_internal.cluster_locks and
-# SHOW SESSIONS showing zero activity for the full stall duration; see
-# DECISION_LOG.md). 240s gives real margin above the measured range.
+# SHOW SESSIONS showing zero activity for the full stall duration).
+# 240s gives real margin above the measured range.
 KILL_COOLDOWN_SECONDS = float(os.environ.get("KILL_COOLDOWN_SECONDS", "240"))
 
-# Burn-rate throttle (round 2, 2026-08-16, DECISION_LOG.md): continuous
+# Burn-rate throttle (2026-08-16): continuous
 # --auto-mode Opus generation exhausted the Anthropic account's monthly
 # spend cap once already. An idle pause between finished jobs cuts
 # sustained duty cycle from 100% to ~80-85% (jobs run ~5.6min; a 60-90s

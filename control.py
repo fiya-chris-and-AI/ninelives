@@ -1,9 +1,8 @@
 """
 F10's kill mechanism: a tiny control server co-located with each worker
 process. POST /kill (with the shared secret header) SIGKILLs THIS process
-immediately — real death, not a flag, per project_brief.md Section 4:
-"The KILL AGENT button SIGKILLs the active worker's process via a tiny
-control endpoint on each worker host."
+immediately — real death, not a flag: the KILL AGENT button SIGKILLs the
+active worker's process via a tiny control endpoint on each worker host.
 
 Stdlib http.server only — this is a single-purpose control plane, not
 worth a second FastAPI process per worker.
