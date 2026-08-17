@@ -86,6 +86,8 @@
   button:hover { background: #1e4a2a; }
   button:disabled { opacity: 0.5; cursor: default; }
   #answer { padding: 0 12px 12px; font-size: 13px; color: #e8fff0; min-height: 20px; white-space: pre-wrap; }
+  #answer-toggle { display: none; margin: -6px 12px 12px; font-size: 11px; color: #6f9a7a; text-decoration: underline; cursor: pointer; }
+  #answer-toggle:hover { color: #a3d9b1; }
   table { border-collapse: collapse; font-size: 11.5px; margin: 0 12px 12px; width: calc(100% - 24px); }
   th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #16241a; vertical-align: top; }
   th { color: #6f9a7a; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
@@ -132,6 +134,7 @@
         <button type="submit" id="ask-btn">ask</button>
       </form>
       <div id="answer"></div>
+      <span id="answer-toggle">show full answer</span>
       <table id="provenance" style="display:none">
         <thead><tr><th>ts</th><th>region</th><th>step</th><th>source</th><th>excerpt</th></tr></thead>
         <tbody></tbody>
@@ -314,15 +317,35 @@ function startCooldown(seconds) {
 
 const form = document.getElementById("recall-form");
 const answerEl = document.getElementById("answer");
+const answerToggle = document.getElementById("answer-toggle");
 const provTable = document.getElementById("provenance");
 const provBody = provTable.querySelector("tbody");
 const askBtn = document.getElementById("ask-btn");
+
+// CD1-2: recall's answer is an excerpt sized for Beat 4's screen time
+// (recall.py's _lead_excerpt); the full research text stays reachable
+// behind a one-line toggle instead of being discarded.
+let answerExcerpt = "";
+let answerFull = "";
+let showingFull = false;
+
+function renderAnswer() {
+  answerEl.textContent = showingFull ? answerFull : answerExcerpt;
+  answerToggle.textContent = showingFull ? "show excerpt" : "show full answer";
+  answerToggle.style.display = answerFull && answerFull !== answerExcerpt ? "block" : "none";
+}
+
+answerToggle.addEventListener("click", () => {
+  showingFull = !showingFull;
+  renderAnswer();
+});
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const question = document.getElementById("question").value.trim();
   if (!question) return;
   askBtn.disabled = true;
+  answerToggle.style.display = "none";
   answerEl.textContent = "thinking…";
   provTable.style.display = "none";
   try {
@@ -332,7 +355,10 @@ form.addEventListener("submit", async (e) => {
       body: JSON.stringify({ question }),
     });
     const data = await res.json();
-    answerEl.textContent = data.answer;
+    answerExcerpt = data.answer;
+    answerFull = data.answer_full || data.answer;
+    showingFull = false;
+    renderAnswer();
     provBody.innerHTML = "";
     for (const p of data.provenance) {
       const tr = document.createElement("tr");
