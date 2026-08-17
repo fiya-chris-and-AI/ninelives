@@ -1,6 +1,6 @@
 """
 Central configuration. Provider choice is configuration, not architecture:
-model IDs, regions, and interim/primary fallbacks live here only.
+model IDs, regions, and provider fallbacks live here only.
 """
 import os
 from dotenv import load_dotenv
@@ -10,9 +10,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-# LLM provider: "anthropic" (interim, direct API) or "bedrock" (primary target).
-# Bedrock model access is blocked pending AWS support case 178690525700030;
-# switch this to "bedrock" once access is granted. No code change needed elsewhere.
+# LLM provider: "anthropic" (default, direct API) or "bedrock" (optional
+# alternative). Switching is config-only; no code change needed elsewhere.
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
@@ -21,7 +20,7 @@ BEDROCK_REGION_PRIMARY = os.environ.get("BEDROCK_REGION_PRIMARY", "us-east-1")
 BEDROCK_REGION_STANDBY = os.environ.get("BEDROCK_REGION_STANDBY", "eu-central-1")
 STEP_MAX_TOKENS = int(os.environ.get("STEP_MAX_TOKENS", "1500"))
 
-# Embedding provider: "local" (interim, sentence-transformers) or "bedrock" (primary, Titan).
+# Embedding provider: "local" (default, sentence-transformers) or "bedrock" (optional, Titan).
 EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "local")
 LOCAL_EMBEDDING_MODEL = os.environ.get("LOCAL_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 BEDROCK_EMBEDDING_MODEL_ID = os.environ.get("BEDROCK_EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
@@ -32,12 +31,10 @@ EMBEDDING_DIM = int(os.environ.get(
 ))
 
 TOTAL_STEPS = int(os.environ.get("TOTAL_STEPS", "20"))
-# Revision (Examiner P1, 2026-08-16): project_brief.md's own Failure States
-# section claims "Bedrock throttle/timeout mid-demo: per-step retry with
-# backoff... worker shows 'retrying step n' rather than dying" — this was
-# never implemented (llm.step_stream had zero exception handling). Applies
-# to worker.py's run_persistent_step; provider-agnostic (same retry wraps
-# either the Anthropic or Bedrock path in llm.py).
+# Per-step retry with backoff: on a transient provider error the worker
+# shows "retrying step n" rather than dying. Applies to worker.py's
+# run_persistent_step; provider-agnostic (same retry wraps either the
+# Anthropic or Bedrock path in llm.py).
 STEP_MAX_RETRIES = int(os.environ.get("STEP_MAX_RETRIES", "3"))
 STEP_RETRY_BACKOFF_SECONDS = float(os.environ.get("STEP_RETRY_BACKOFF_SECONDS", "1"))
 # Tight failover budget (F2 acceptance: standby produces next token <=5s

@@ -1,10 +1,9 @@
 """
 LLM step call, behind a provider switch.
 
-Primary target: Bedrock (Claude on Amazon Bedrock, Mantle client).
-Interim: Anthropic API direct, while Bedrock model access is pending
-(AWS support case 178690525700030). Swap by setting LLM_PROVIDER=bedrock
-in .env.ninelives — no other code changes.
+Default: Anthropic API direct. Optional: Bedrock (Claude on Amazon
+Bedrock, Mantle client). Swap by setting LLM_PROVIDER=bedrock in
+.env.ninelives — no other code changes.
 """
 import config
 

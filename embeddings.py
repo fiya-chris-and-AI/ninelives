@@ -1,11 +1,10 @@
 """
 Embedding call, behind a provider switch.
 
-Primary target: Titan Embeddings on Bedrock. Interim: local sentence-transformers,
-while Bedrock model access is pending (AWS support case 178690525700030).
-Swap by setting EMBEDDING_PROVIDER=bedrock in .env.ninelives — no other
-code changes. The CockroachDB vector index is the point of the demo, not
-the embedding vendor.
+Default: local sentence-transformers. Optional: Titan Embeddings on
+Bedrock. Swap by setting EMBEDDING_PROVIDER=bedrock in .env.ninelives —
+no other code changes. The CockroachDB vector index is the point of the
+demo, not the embedding vendor.
 """
 import config
 
