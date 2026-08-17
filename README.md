@@ -51,23 +51,10 @@ permission — all detailed in `deployments.md`.
 ## Disclosures
 
 - **AI coding assistants:** this project was built with AI coding assistance
-  (Claude Code, via the Antigravity Academy process). The Academy's own
-  tooling (`directives/`, `project_brief.md`, examiner/creative reports,
-  `DECISION_LOG.md`) is process scaffolding and lives outside this repository
-  — it is not project code.
+  (Claude Code).
 - **Curated demo corpus:** the research corpus the agent works over is
   bundled in `corpus/` and is curated, not live-fetched. Listed and disclosed
   here and in the submission writeup.
-- **Interim provider substitution (transparent, swap-only-config):** Bedrock
-  model access (Claude Opus 5 and Titan Embeddings) is pending an AWS support
-  case (marketplace/agreement gate at the account level). Until it clears,
-  the LLM step calls the Anthropic API directly and embeddings use a local
-  `sentence-transformers` model. Both are real, working calls — nothing is
-  mocked — and both are a one-line config change away from Bedrock
-  (`LLM_PROVIDER=bedrock`, `EMBEDDING_PROVIDER=bedrock` in `.env`). See
-  `llm.py` and `embeddings.py`. The demo's mandatory-AWS-service requirement
-  is independently satisfied by ECS Fargate (M3), regardless of this
-  substitution.
 - **Resilience, persistence, and failover are never simulated.** What the
   demo shows is what the database did.
 
