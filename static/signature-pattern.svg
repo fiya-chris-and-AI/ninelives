@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="1297.1" y1="325.6" x2="-17.1" y2="394.4"><stop offset="0" stop-color="#190f33"></stop><stop offset="1" stop-color="#331a66"></stop></linearGradient>
+    <linearGradient id="fade" gradientUnits="userSpaceOnUse" x1="1324.1" y1="227.0" x2="-44.1" y2="493.0"><stop offset="0" stop-color="#ffffff"></stop><stop offset="0" stop-color="#ffffff"></stop><stop offset="1" stop-color="rgb(0,0,0)"></stop></linearGradient>
+    <mask id="fademask" maskUnits="userSpaceOnUse" x="0" y="0" width="1280" height="720"><rect width="1280" height="720" fill="url(#fade)"></rect></mask>
+    <pattern id="tiles" patternUnits="userSpaceOnUse" width="150" height="150">
+      <g fill="#ffffff" transform="scale(0.555556) translate(-195 -195)">
+        <path d="M195,330C195,255.469 255.469,195 330,195C330,269.531 269.531,330 195,330Z"></path>
+        <path d="M195,330C195,404.531 255.469,465 330,465C330,390.469 269.531,330 195,330Z"></path>
+        <path d="M465,330C465,255.469 404.531,195 330,195C330,269.531 390.469,330 465,330Z"></path>
+        <path d="M465,330C465,404.531 404.531,465 330,465C330,390.469 390.469,330 465,330Z"></path>
+      </g>
+    </pattern>
+    <mask id="iconmask" maskUnits="userSpaceOnUse" x="0" y="0" width="1280" height="720">
+      <rect width="1280" height="720" fill="url(#tiles)"></rect>
+    </mask>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)"></rect>
+  <g mask="url(#fademask)"><rect width="1280" height="720" fill="#ffffff" mask="url(#iconmask)" opacity="0.16" style="mix-blend-mode:overlay"></rect></g>
+</svg>
