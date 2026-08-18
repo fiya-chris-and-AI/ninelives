@@ -117,8 +117,13 @@ Re-ran only the two incomplete items against `https://ninelives.millerandmuller.
 
 **All four CD1-3 checks pass.** Final demo URL: `https://ninelives.millerandmuller.com`. Per the user's instruction, stopping here — the Creative Director JURY-VERDICT re-check is triggered by the user, not automatically.
 
+## Arena redesign deployed (2026-08-17 late evening, commit 947709a)
+
+Chris's violet redesign (static/index.html + static/signature-pattern.svg only; script block and element IDs verified byte-identical before deploy) built, pushed to both ECR regions, and rolled out to all three services via `make deploy`. **The first rollout attempt exposed a latent infra bug:** the arena service had `healthCheckGracePeriodSeconds=0` against an ALB health check of GET / every 15s / unhealthy-after-3 — this app boots slowly (torch + embedding model load before uvicorn binds), so the first new task was condemned during boot, finished booting, served 200s, and was killed anyway ("Task failed ELB health checks", container exit 0). Previous deploys had simply won the timing race. **Fix: `aws ecs update-service --health-check-grace-period-seconds 300` on ninelives-arena** — rollout then completed cleanly. The old task kept serving throughout; the public URL never went down (verified 200 mid-incident). Post-deploy verification in real Chrome (hard reload): new theme live, all header/badge/pane elements render, live job streamed real content, one KILL press → failover to eu-central-1 within ~4s, mid-word freeze + resume, cooldown state displayed. Fonts note: the redesign loads two Google Fonts from CDN (fallback stacks are proper system fonts — accepted deviation from the self-contained rule).
+
 ### Open items for M3+
 
+- [ ] Cooldown display check (rehearsal): after a kill the button showed "cooldown: 27s" while the server enforces 240s — script block is unchanged (pre-existing behavior), but verify a juror can't see a zeroed counter while the server still rejects; fix copy only if rehearsal confirms the mismatch
 - [ ] Re-measure F2 failover timing during the real Feature-Freeze demo rehearsal (3x cold) — the 3.1s above is one deployed-infra sample, not a rehearsal result
 - [ ] F3 pacing is ~13% over the 3-5 min target (5.64 min observed, M1) — unaddressed this round; flagged for the Examiner
 - [ ] Flip repo to public before T-2h submission
